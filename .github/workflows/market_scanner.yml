@@ -1,0 +1,60 @@
+name: 0DTE Options Scanner
+
+on:
+  schedule:
+    - cron: "*/10 13-21 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    name: Market Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore trade state
+        uses: actions/cache@v4
+        with:
+          path: logs/active_trades.json
+          key: trades-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trades-${{ runner.os }}-
+
+      - name: Run 0DTE Scanner
+        env:
+          EMAIL_ADDRESS:       ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_APP_PASSWORD:  ${{ secrets.EMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL:     ${{ secrets.RECIPIENT_EMAIL }}
+          RECIPIENT_PHONE:     ${{ secrets.RECIPIENT_PHONE }}
+          CARRIER:             ${{ secrets.CARRIER }}
+          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: python main.py
+
+      - name: Save trade state
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: logs/active_trades.json
+          key: trades-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Upload trade log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-log-${{ github.run_id }}
+          path: logs/
+          retention-days: 30
+          if-no-files-found: ignore
