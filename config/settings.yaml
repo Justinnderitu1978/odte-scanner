@@ -1,6 +1,8 @@
 tickers:
+ tickers:
   - SPY
   - QQQ
+  - IWM
 
 strike_offset: 0
 score_threshold: 4
