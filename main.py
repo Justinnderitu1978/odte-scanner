@@ -254,45 +254,44 @@ def _dispatch_fast_entry_alert(signal):
 
 
 def main():
-    """Main scanner entry point"""
-    from src.market_data   import get_vix
-    from src.trade_manager import check_exits, print_trade_summary
-    
-    now = datetime.now(ET)
-    logger.info("="*55)
-    logger.info(f"0DTE Scanner starting — {now.strftime('%Y-%m-%d %H:%M ET')}")
-    logger.info("="*55)
-    
-    # Check if market is open
-    if not is_market_open():
-        logger.info("Market is closed — nothing to do")
-        return
-    
-    # Load configuration
-    config  = load_config()
-    tickers = config.get("tickers", ["SPY", "QQQ"])
-    
-    # Get VIX
-    vix = get_vix()
-    logger.info(f"VIX: {vix:.1f}")
-    
-    # Check for exit conditions on open positions
-    check_exits()
-    
-    # Scan each ticker
-    for ticker in tickers:
-        try:
-            scan_ticker(ticker, vix, config)
-        except Exception as e:
-            logger.error(f"[{ticker}] Scan error: {e}", exc_info=True)
-    
-    # Print summary
-    print_trade_summary()
-    
-    logger.info("="*55)
-    logger.info("Scan cycle complete")
-    logger.info("="*55)
+"""Main scanner entry point"""
+from src.market_data import get_vix
+from src.trade_manager import check_exits, print_trade_summary
 
+now = datetime.now(ET)
+logger.info("="*55)
+logger.info(f"0DTE Scanner starting — {now.strftime('%Y-%m-%d %H:%M ET')}")
+logger.info("="*55)
+
+# Check if market is open
+if not is_market_open():
+logger.info("Market is closed — nothing to do")
+return
+
+# Load configuration
+config = load_config()
+ticker_list = config.get("tickers", ["SPY", "QQQ"]) # ← FIX: Get the actual list
+
+# Get VIX
+vix = get_vix()
+logger.info(f"VIX: {vix:.1f}")
+
+# Check for exit conditions on open positions
+check_exits()
+
+# Scan each ticker
+for ticker in ticker_list: # ← FIX: Use ticker_list instead of tickers
+try:
+scan_ticker(ticker, vix, config)
+except Exception as e:
+logger.error(f"[{ticker}] Scan error: {e}", exc_info=True)
+
+# Print summary
+print_trade_summary()
+
+logger.info("="*55)
+logger.info("Scan cycle complete")
+logger.info("="*55)
 
 if __name__ == "__main__":
     main()
