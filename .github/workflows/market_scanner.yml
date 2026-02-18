@@ -8,7 +8,7 @@ on:
 jobs:
   scan:
     name: Market Scan
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 8
 
     steps:
