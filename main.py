@@ -75,17 +75,17 @@ def scan_ticker(ticker: str, vix: float, config: dict):
     
     logger.info(f"Scanning {ticker}...")
     
-    # ── Fetch market data ────────────────────────────────────────────────
+    # Fetch market data
     df = get_intraday(ticker, interval="1m")
     if df is None or df.empty:
         logger.warning(f"[{ticker}] No market data available")
         return
     
-    # ── Run main 4/5 signal engine ───────────────────────────────────────
+    # Run main 4/5 signal engine
     main_signal = run_scanner(ticker, df, vix)
     
     if main_signal and main_signal.score >= 4:
-        # Main system fired — process it
+        # Main system fired
         logger.info(f"\n{main_signal}")
         
         signal = enrich_signal(main_signal, offset_strikes=config.get("strike_offset", 0))
@@ -95,12 +95,10 @@ def scan_ticker(ticker: str, vix: float, config: dict):
         logger.info(f"[{ticker}] Main 4/5 signal processed")
         return
     
-    # ── Main system didn't fire — check fast entry 3/5 ──────────────────
-    # Extract OR and VWAP for fast entry evaluation
+    # Main system didn't fire - check fast entry 3/5
     or_high, or_low = _calc_opening_range(df)
     vwap = _calc_vwap(df)
     
-    # Get the score from main system (might be 3, 2, 1, or 0)
     main_score = main_signal.score if main_signal else 0
     
     fast_signal = evaluate_fast_entry(
@@ -114,15 +112,11 @@ def scan_ticker(ticker: str, vix: float, config: dict):
     )
     
     if fast_signal:
-        # Fast entry fired — process it
+        # Fast entry fired
         logger.info(f"\n{fast_signal}")
         
         signal = enrich_signal(fast_signal, offset_strikes=config.get("strike_offset", 0))
-        
-        # Send fast entry specific alert
         _dispatch_fast_entry_alert(signal)
-        
-        # Register trade with modified exit rules
         open_trade(signal)
         
         logger.info(f"[{ticker}] Fast entry 3/5 signal processed")
@@ -133,10 +127,7 @@ def scan_ticker(ticker: str, vix: float, config: dict):
 
 
 def _dispatch_fast_entry_alert(signal):
-    """
-    Send fast entry alert with modified format to distinguish from main signals.
-    Uses same email/SMS infrastructure but different subject line.
-    """
+    """Send fast entry alert with modified format"""
     import os
     import smtplib
     from email.mime.multipart import MIMEMultipart
@@ -149,16 +140,15 @@ def _dispatch_fast_entry_alert(signal):
     carrier   = os.environ.get("CARRIER", "").lower()
     
     if not sender or not password:
-        logger.warning("Email credentials not set — skipping fast entry alert")
+        logger.warning("Email credentials not set")
         return
     
-    # ── Email ────────────────────────────────────────────────────────────
     subject = (
         f"⚡ FAST ENTRY {signal.direction} {signal.ticker} "
         f"@ ${signal.spot_price:.2f} Score 3/5 V-BOTTOM"
     )
     
-    color = "#f59e0b"  # Orange for fast entry
+    color = "#f59e0b"
     
     contract_html = ""
     if signal.premium:
@@ -197,12 +187,6 @@ def _dispatch_fast_entry_alert(signal):
       </table>
       <h3>Signal Reasons</h3>
       <p style="background:#f9fafb;padding:10px;border-radius:6px">{reasons}</p>
-      <h3>Exit Rules (Modified)</h3>
-      <ul>
-        <li>Target: +{signal.target_pct*100:.0f}% (faster than main system)</li>
-        <li>Stop: -{signal.stop_pct*100:.0f}% (tighter than main system)</li>
-        <li>Time Stop: {signal.time_stop} ET (earlier than main system)</li>
-      </ul>
     </div>
     </body></html>
     """
@@ -217,11 +201,10 @@ def _dispatch_fast_entry_alert(signal):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(sender, password)
             s.sendmail(sender, recipient, msg.as_string())
-        logger.info(f"Fast entry email sent to {recipient}")
+        logger.info(f"Fast entry email sent")
     except Exception as e:
         logger.error(f"Fast entry email failed: {e}")
     
-    # ── SMS ──────────────────────────────────────────────────────────────
     if phone and carrier:
         from src.alert_system import CARRIER_GATEWAYS
         domain = CARRIER_GATEWAYS.get(carrier)
@@ -234,8 +217,7 @@ def _dispatch_fast_entry_alert(signal):
                 f"⚡ FAST ENTRY {signal.ticker} {signal.direction} "
                 f"${signal.spot_price:.2f}{prem_str} "
                 f"Score:3/5 V-Bottom "
-                f"Tgt:+{signal.target_pct*100:.0f}% Stp:-{signal.stop_pct*100:.0f}% "
-                f"Exit {signal.time_stop} ET"
+                f"Tgt:+{signal.target_pct*100:.0f}% Stp:-{signal.stop_pct*100:.0f}%"
             )[:320]
             
             sms_msg = MIMEText(sms_body)
@@ -261,32 +243,26 @@ def main():
     logger.info(f"0DTE Scanner starting — {now.strftime('%Y-%m-%d %H:%M ET')}")
     logger.info("="*55)
     
-    # Check if market is open
     if not is_market_open():
         logger.info("Market is closed — nothing to do")
         return
     
-    # Load configuration
     config = load_config()
     ticker_list = config.get("tickers", ["SPY", "QQQ", "IWM"])
     
     logger.info(f"Tickers configured: {ticker_list}")
     
-    # Get VIX
     vix = get_vix()
     logger.info(f"VIX: {vix:.1f}")
     
-    # Check for exit conditions on open positions
     check_exits()
     
-    # Scan each ticker
     for ticker in ticker_list:
         try:
             scan_ticker(ticker, vix, config)
         except Exception as e:
             logger.error(f"[{ticker}] Scan error: {e}", exc_info=True)
     
-    # Print summary
     print_trade_summary()
     
     logger.info("="*55)
