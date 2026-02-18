@@ -11,7 +11,7 @@ ET = pytz.timezone("America/New_York")
 
 CARRIER_GATEWAYS = {
     "verizon":   "vtext.com",
-    "att":       "txt.att.net",
+    "att":       "mms.att.net",      # Changed from txt.att.net
     "tmobile":   "tmomail.net",
     "sprint":    "messaging.sprintpcs.com",
     "boost":     "sms.myboostmobile.com",
@@ -19,7 +19,6 @@ CARRIER_GATEWAYS = {
     "uscellular":"email.uscc.net",
     "metro":     "mymetropcs.com",
 }
-
 
 def _get_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
