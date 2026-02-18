@@ -7,7 +7,7 @@ Runs dual signal systems:
 1. Main 4/5 high-confidence system (conservative)
 2. Fast entry 3/5 V-bottom reversal system (aggressive)
 
-Executes every 10 minutes via GitHub Actions during market hours.
+Executes every 30 seconds via self-hosted runner during market hours.
 """
 
 import logging
@@ -36,7 +36,7 @@ def load_config() -> dict:
         with config_path.open() as f:
             return yaml.safe_load(f)
     return {
-        "tickers": ["SPY", "QQQ"],
+        "tickers": ["SPY", "QQQ", "IWM"],
         "strike_offset": 0,
     }
 
@@ -67,7 +67,7 @@ def scan_ticker(ticker: str, vix: float, config: dict):
     4. Process whichever signal fired
     """
     from src.market_data       import get_intraday
-    from src.signal_engine     import run_scanner
+    from src.signal_engine     import run_scanner, _calc_opening_range, _calc_vwap
     from src.fast_entry_signal import evaluate_fast_entry
     from src.options_analyzer  import enrich_signal
     from src.alert_system      import dispatch_alerts
@@ -96,9 +96,7 @@ def scan_ticker(ticker: str, vix: float, config: dict):
         return
     
     # ── Main system didn't fire — check fast entry 3/5 ──────────────────
-    # We need to extract OR and VWAP for fast entry evaluation
-    from src.signal_engine import _calc_opening_range, _calc_vwap
-    
+    # Extract OR and VWAP for fast entry evaluation
     or_high, or_low = _calc_opening_range(df)
     vwap = _calc_vwap(df)
     
@@ -160,7 +158,7 @@ def _dispatch_fast_entry_alert(signal):
         f"@ ${signal.spot_price:.2f} Score 3/5 V-BOTTOM"
     )
     
-    color = "#f59e0b"  # Orange for fast entry (vs green/red for main signals)
+    color = "#f59e0b"  # Orange for fast entry
     
     contract_html = ""
     if signal.premium:
@@ -254,44 +252,47 @@ def _dispatch_fast_entry_alert(signal):
 
 
 def main():
-"""Main scanner entry point"""
-from src.market_data import get_vix
-from src.trade_manager import check_exits, print_trade_summary
+    """Main scanner entry point"""
+    from src.market_data   import get_vix
+    from src.trade_manager import check_exits, print_trade_summary
+    
+    now = datetime.now(ET)
+    logger.info("="*55)
+    logger.info(f"0DTE Scanner starting — {now.strftime('%Y-%m-%d %H:%M ET')}")
+    logger.info("="*55)
+    
+    # Check if market is open
+    if not is_market_open():
+        logger.info("Market is closed — nothing to do")
+        return
+    
+    # Load configuration
+    config = load_config()
+    ticker_list = config.get("tickers", ["SPY", "QQQ", "IWM"])
+    
+    logger.info(f"Tickers configured: {ticker_list}")
+    
+    # Get VIX
+    vix = get_vix()
+    logger.info(f"VIX: {vix:.1f}")
+    
+    # Check for exit conditions on open positions
+    check_exits()
+    
+    # Scan each ticker
+    for ticker in ticker_list:
+        try:
+            scan_ticker(ticker, vix, config)
+        except Exception as e:
+            logger.error(f"[{ticker}] Scan error: {e}", exc_info=True)
+    
+    # Print summary
+    print_trade_summary()
+    
+    logger.info("="*55)
+    logger.info("Scan cycle complete")
+    logger.info("="*55)
 
-now = datetime.now(ET)
-logger.info("="*55)
-logger.info(f"0DTE Scanner starting — {now.strftime('%Y-%m-%d %H:%M ET')}")
-logger.info("="*55)
-
-# Check if market is open
-if not is_market_open():
-logger.info("Market is closed — nothing to do")
-return
-
-# Load configuration
-config = load_config()
-ticker_list = config.get("tickers", ["SPY", "QQQ"]) # ← FIX: Get the actual list
-
-# Get VIX
-vix = get_vix()
-logger.info(f"VIX: {vix:.1f}")
-
-# Check for exit conditions on open positions
-check_exits()
-
-# Scan each ticker
-for ticker in ticker_list: # ← FIX: Use ticker_list instead of tickers
-try:
-scan_ticker(ticker, vix, config)
-except Exception as e:
-logger.error(f"[{ticker}] Scan error: {e}", exc_info=True)
-
-# Print summary
-print_trade_summary()
-
-logger.info("="*55)
-logger.info("Scan cycle complete")
-logger.info("="*55)
 
 if __name__ == "__main__":
     main()
