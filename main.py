@@ -1,7 +1,5 @@
 """
 main.py
-=======
-0DTE Options Scanner - Entry Point
 """
 
 import logging
@@ -53,73 +51,73 @@ def main():
     logger.info("="*55)
     
     if not is_market_open():
-        logger.info("Market is closed — nothing to do")
+        logger.info("Market is closed")
         return
     
     if now.time() >= time(15, 0):
-        logger.info("Past 3:00 PM — skipping new entries, monitoring exits only")
+        logger.info("Past 3 PM - exits only")
         check_exits()
         print_trade_summary()
         return
     
-    config = load_config()
-    tickers = config.get("tickers", ["SPY", "QQQ", "IWM"])
+    settings = load_config()
+    symbol_list = settings.get("tickers", ["SPY", "QQQ", "IWM"])
+    strike_offset = settings.get("strike_offset", 0)
     
-    logger.info(f"Monitoring: {', '.join(tickers)}")
+    logger.info(f"Symbols: {symbol_list}")
     
-    vix = get_vix()
-    logger.info(f"VIX: {vix:.1f}")
+    current_vix = get_vix()
+    logger.info(f"VIX: {current_vix:.1f}")
     
     check_exits()
     
-    for symbol in tickers:
+    for ticker_symbol in symbol_list:
         try:
-            logger.info(f"Scanning {symbol}...")
+            logger.info(f"Scanning {ticker_symbol}...")
             
-            df = get_intraday(symbol, interval="1m")
-            if df is None or df.empty:
-                logger.warning(f"[{symbol}] No market data available")
+            price_data = get_intraday(ticker_symbol, interval="1m")
+            if price_data is None or price_data.empty:
+                logger.warning(f"[{ticker_symbol}] No data")
                 continue
             
-            main_signal = run_scanner(symbol, df, vix)
+            primary_signal = run_scanner(ticker_symbol, price_data, current_vix)
             
-            if main_signal and main_signal.score >= 4:
-                logger.info(f"[{symbol}] 4/5 signal detected!")
-                signal = enrich_signal(main_signal, offset_strikes=config.get("strike_offset", 0))
-                dispatch_alerts(signal)
-                open_trade(signal)
+            if primary_signal and primary_signal.score >= 4:
+                logger.info(f"[{ticker_symbol}] 4/5 SIGNAL!")
+                enriched = enrich_signal(primary_signal, offset_strikes=strike_offset)
+                dispatch_alerts(enriched)
+                open_trade(enriched)
                 continue
             
-            or_high, or_low = _calc_opening_range(df)
-            vwap = _calc_vwap(df)
-            main_score = main_signal.score if main_signal else 0
+            range_high, range_low = _calc_opening_range(price_data)
+            volume_wap = _calc_vwap(price_data)
+            current_score = primary_signal.score if primary_signal else 0
             
-            fast_signal = evaluate_fast_entry(
-                ticker=symbol,
-                df=df,
-                vix=vix,
-                main_score=main_score,
-                or_high=or_high,
-                or_low=or_low,
-                vwap=vwap,
+            secondary_signal = evaluate_fast_entry(
+                ticker=ticker_symbol,
+                df=price_data,
+                vix=current_vix,
+                main_score=current_score,
+                or_high=range_high,
+                or_low=range_low,
+                vwap=volume_wap,
             )
             
-            if fast_signal:
-                logger.info(f"[{symbol}] 3/5 fast entry detected!")
-                signal = enrich_signal(fast_signal, offset_strikes=config.get("strike_offset", 0))
-                dispatch_alerts(signal)
-                open_trade(signal)
+            if secondary_signal:
+                logger.info(f"[{ticker_symbol}] 3/5 FAST ENTRY!")
+                enriched = enrich_signal(secondary_signal, offset_strikes=strike_offset)
+                dispatch_alerts(enriched)
+                open_trade(enriched)
                 continue
             
-            logger.info(f"[{symbol}] No signal this cycle")
+            logger.info(f"[{ticker_symbol}] No signal")
             
         except Exception as e:
-            logger.error(f"[{symbol}] Error: {e}", exc_info=True)
+            logger.error(f"[{ticker_symbol}] Error: {e}", exc_info=True)
     
     print_trade_summary()
-    
     logger.info("="*55)
-    logger.info("Scan cycle complete")
+    logger.info("Scan complete")
     logger.info("="*55)
 
 
