@@ -111,3 +111,67 @@ def get_option_premium(ticker, strike, expiry, option_type):
     except Exception as e:
         logger.error(f"Error fetching option premium: {e}")
         return None
+
+def get_options_chain(ticker, expiry):
+    """Get full options chain for a ticker and expiry"""
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        return ticker_obj.option_chain(expiry)
+    except Exception as e:
+        logger.error(f"Error fetching options chain for {ticker}: {e}")
+        return None
+
+
+def get_atm_options(ticker, option_type='CALL', offset=0):
+    """
+    Get ATM or near-ATM option contract
+    offset: 0=ATM, 1=1 strike OTM, 2=2 strikes OTM, etc.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        current_price = get_current_price(ticker)
+        
+        if not current_price:
+            return None
+        
+        # Get today's 0DTE options (or next available)
+        expirations = ticker_obj.options
+        if not expirations:
+            logger.error(f"No options available for {ticker}")
+            return None
+        
+        # Use first expiry (today for 0DTE)
+        expiry = expirations[0]
+        chain = ticker_obj.option_chain(expiry)
+        
+        # Select calls or puts
+        options = chain.calls if option_type == 'CALL' else chain.puts
+        
+        if options.empty:
+            return None
+        
+        # Find ATM strike
+        options['strike_diff'] = abs(options['strike'] - current_price)
+        options = options.sort_values('strike_diff')
+        
+        # Apply offset (0=ATM, 1=first OTM, etc.)
+        if offset < len(options):
+            selected = options.iloc[offset]
+            return {
+                'strike': selected['strike'],
+                'premium': (selected['bid'] + selected['ask']) / 2 if selected['bid'] > 0 else selected['lastPrice'],
+                'expiry': expiry,
+                'symbol': selected.get('contractSymbol', ''),
+                'bid': selected['bid'],
+                'ask': selected['ask'],
+                'volume': selected.get('volume', 0),
+                'openInterest': selected.get('openInterest', 0)
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting ATM options for {ticker}: {e}")
+        return None
+
+
