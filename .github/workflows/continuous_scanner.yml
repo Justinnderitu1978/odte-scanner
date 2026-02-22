@@ -47,6 +47,9 @@ jobs:
           CARRIER:            ${{ secrets.CARRIER }}
           APCA_API_KEY_ID:    ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          SCHWAB_APP_KEY: ${{ secrets.SCHWAB_APP_KEY }}
+          SCHWAB_APP_SECRET: ${{ secrets.SCHWAB_APP_SECRET }}
+          SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
         run: |
           echo "Starting continuous scanner at $(date -u)"
           SCAN_INTERVAL=30  # seconds between scans
