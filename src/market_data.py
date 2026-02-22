@@ -1,104 +1,113 @@
+"""
+Market Data Module
+Fetches real-time and historical market data
+Uses Schwab API when available, falls back to yfinance
+"""
+
 import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime, time, timedelta
-import pytz
 import logging
+from datetime import datetime, timedelta
+import pytz
 
 logger = logging.getLogger(__name__)
-
 ET = pytz.timezone("America/New_York")
 
-TICKERS = {
-    "SPY":  {"name": "S&P 500 ETF",     "multiplier": 100},
-    "QQQ":  {"name": "Nasdaq 100 ETF",   "multiplier": 100},
-    "IWM":  {"name": "Russell 2000 ETF", "multiplier": 100},
-}
+# Try to import Schwab client
+try:
+    from src.schwab_client import get_schwab_client
+    SCHWAB_AVAILABLE = True
+except ImportError:
+    SCHWAB_AVAILABLE = False
+    logger.warning("Schwab client not available - using yfinance only")
 
 
-def get_intraday(ticker: str, interval: str = "1m") -> pd.DataFrame:
+def get_current_price(ticker):
+    """Get current real-time price for a ticker"""
+    if SCHWAB_AVAILABLE:
+        client = get_schwab_client()
+        if client.enabled:
+            quote = client.get_quote(ticker)
+            if quote and ticker in quote:
+                data = quote[ticker]["quote"]
+                return data.get("lastPrice") or data.get("mark")
+    
+    # Fallback to yfinance
     try:
-        t  = yf.Ticker(ticker)
-        df = t.history(period="1d", interval=interval, prepost=False)
-        if df.empty:
+        data = yf.Ticker(ticker).history(period="1d", interval="1m")
+        if not data.empty:
+            return data['Close'].iloc[-1]
+    except Exception as e:
+        logger.error(f"Error fetching price for {ticker}: {e}")
+    
+    return None
+
+
+def get_intraday(ticker, interval="1m"):
+    """
+    Fetch intraday data for a ticker
+    Uses yfinance for historical bars (Schwab streaming would be overkill for this)
+    """
+    try:
+        data = yf.Ticker(ticker).history(period="1d", interval=interval)
+        if data.empty:
             logger.warning(f"No intraday data for {ticker}")
-            return pd.DataFrame()
-        if df.index.tz is None:
-            df.index = df.index.tz_localize("UTC").tz_convert(ET)
-        else:
-            df.index = df.index.tz_convert(ET)
-        return df
+            return None
+        return data
     except Exception as e:
         logger.error(f"Error fetching intraday data for {ticker}: {e}")
-        return pd.DataFrame()
+        return None
 
 
-def get_vix() -> float:
+def get_vix():
+    """Get current VIX value"""
+    vix = get_current_price("^VIX")
+    return vix if vix else 20.0  # Default fallback
+
+
+def get_option_premium(ticker, strike, expiry, option_type):
+    """
+    Get current option premium
+    Uses Schwab API for real-time pricing when available
+    """
+    if SCHWAB_AVAILABLE:
+        client = get_schwab_client()
+        if client.enabled:
+            chain = client.get_option_chain(
+                symbol=ticker,
+                strike=strike,
+                contract_type="CALL" if option_type == "CALL" else "PUT"
+            )
+            
+            if chain:
+                # Parse Schwab option chain response
+                try:
+                    contract_map = chain.get("callExpDateMap" if option_type == "CALL" else "putExpDateMap", {})
+                    
+                    # Find the right expiry and strike
+                    for exp_date, strikes in contract_map.items():
+                        for strike_price, contracts in strikes.items():
+                            if abs(float(strike_price) - strike) < 0.01:
+                                contract = contracts[0]
+                                # Return mid price or last
+                                return contract.get("mark") or contract.get("last")
+                except Exception as e:
+                    logger.error(f"Error parsing Schwab option chain: {e}")
+    
+    # Fallback to yfinance
     try:
-        vix  = yf.Ticker("^VIX")
-        hist = vix.history(period="1d", interval="5m")
-        if hist.empty:
-            return 20.0
-        return float(hist["Close"].iloc[-1])
+        ticker_obj = yf.Ticker(ticker)
+        options = ticker_obj.option_chain(expiry)
+        
+        chain = options.calls if option_type == "CALL" else options.puts
+        
+        # Find closest strike
+        chain['strike_diff'] = abs(chain['strike'] - strike)
+        closest = chain.loc[chain['strike_diff'].idxmin()]
+        
+        # Return mid price or last
+        return (closest['bid'] + closest['ask']) / 2 if closest['bid'] > 0 else closest['lastPrice']
+        
     except Exception as e:
-        logger.error(f"Error fetching VIX: {e}")
-        return 20.0
-
-
-def get_options_chain(ticker: str) -> dict:
-    try:
-        t         = yf.Ticker(ticker)
-        today_str = datetime.now(ET).strftime("%Y-%m-%d")
-        expirations = t.options
-        if today_str not in expirations:
-            near = [e for e in expirations if e >= today_str]
-            if not near:
-                logger.warning(f"No 0DTE chain for {ticker}")
-                return {}
-            today_str = near[0]
-
-        chain = t.option_chain(today_str)
-        hist  = t.history(period="1d", interval="1m")
-        spot  = float(hist["Close"].iloc[-1]) if not hist.empty else 0.0
-
-        return {
-            "calls":  chain.calls.copy(),
-            "puts":   chain.puts.copy(),
-            "spot":   spot,
-            "expiry": today_str,
-        }
-    except Exception as e:
-        logger.error(f"Error fetching options chain for {ticker}: {e}")
-        return {}
-
-
-def get_atm_options(chain_data: dict, offset_strikes: int = 0) -> dict:
-    if not chain_data:
-        return {}
-    spot  = chain_data["spot"]
-    calls = chain_data["calls"].copy()
-    puts  = chain_data["puts"].copy()
-
-    band  = spot * 0.05
-    calls = calls[(calls["strike"] >= spot - band) & (calls["strike"] <= spot + band)]
-    puts  = puts[(puts["strike"]  >= spot - band) & (puts["strike"]  <= spot + band)]
-
-    if calls.empty or puts.empty:
-        return {}
-
-    calls_above = calls[calls["strike"] >= spot].sort_values("strike")
-    calls_below = calls[calls["strike"] <  spot].sort_values("strike", ascending=False)
-    atm_calls   = pd.concat([calls_above, calls_below]).reset_index(drop=True)
-
-    puts_below  = puts[puts["strike"] <= spot].sort_values("strike", ascending=False)
-    puts_above  = puts[puts["strike"] >  spot].sort_values("strike")
-    atm_puts    = pd.concat([puts_below, puts_above]).reset_index(drop=True)
-
-    if len(atm_calls) <= offset_strikes or len(atm_puts) <= offset_strikes:
-        return {}
-
-    return {
-        "call": atm_calls.iloc[offset_strikes],
-        "put":  atm_puts.iloc[offset_strikes],
-        "spot": spot,
-    }
+        logger.error(f"Error fetching option premium: {e}")
+        return None
