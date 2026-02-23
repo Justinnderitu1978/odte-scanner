@@ -198,21 +198,9 @@ class SignalEngine:
             score     = bear_score
             reasons   = bear_reasons
 
-        if not direction:
-            try:
-                from src.pre_signal import check_pre_signal
-                if bull_score == SIGNAL_SCORE_THRESHOLD - 1:
-                    missing = ["Need one more bullish condition"]
-                    check_pre_signal(ticker, bull_score, "CALL", missing,
-                                     spot, vwap, rsi, or_high, or_low)
-                elif bear_score == SIGNAL_SCORE_THRESHOLD - 1:
-                    missing = ["Need one more bearish condition"]
-                    check_pre_signal(ticker, bear_score, "PUT", missing,
-                                     spot, vwap, rsi, or_high, or_low)
-            except Exception:
-                pass
-            return None
-
+       if not direction:
+    # Pre-signal alerts disabled - only alert on full 4/5 signals
+    return None
         self._last_signal[ticker] = now
 
         return Signal(
