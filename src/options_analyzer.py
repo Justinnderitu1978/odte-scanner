@@ -77,60 +77,77 @@ def _is_liquid(row) -> bool:
 
 
 def enrich_signal(signal: Signal, offset_strikes: int = 0) -> Signal:
-    chain = get_options_chain(signal.ticker)
-    if not chain:
-        logger.warning(f"[{signal.ticker}] No options chain")
-        return signal
-
-    atm = get_atm_options(chain, offset_strikes=offset_strikes)
-    if not atm:
+    """Enrich signal with option contract details"""
+    
+    # Get ATM option directly (it handles finding the right expiry)
+    atm_data = get_atm_options(
+        ticker=signal.ticker,
+        option_type=signal.direction,
+        offset=offset_strikes
+    )
+    
+    if not atm_data:
         logger.warning(f"[{signal.ticker}] Could not find ATM options")
         return signal
-
-    side = "call" if signal.direction == "CALL" else "put"
-    contract_row = atm.get(side)
-    if contract_row is None or contract_row.empty:
+    
+    # Check liquidity
+    bid = atm_data.get('bid', 0)
+    ask = atm_data.get('ask', 0)
+    oi = atm_data.get('openInterest', 0)
+    premium = atm_data.get('premium', 0)
+    
+    if premium == 0:
+        logger.warning(f"[{signal.ticker}] No premium available")
         return signal
-
-    if not _is_liquid(contract_row):
-        logger.warning(f"[{signal.ticker}] ATM {side} illiquid - trying 1-OTM")
-        atm2 = get_atm_options(chain, offset_strikes=offset_strikes + 1)
-        if not atm2:
-            return signal
-        contract_row = atm2.get(side)
-        if contract_row is None:
-            return signal
-
-    premium = _mid_price(contract_row)
-    strike  = float(contract_row.get("strike", 0))
-    iv_raw  = float(contract_row.get("impliedVolatility", 0) or 0)
-    if iv_raw == 0 or iv_raw > 2.0:
-        iv_raw = 0.30
-
+    
+    # Check spread
+    if bid > 0:
+        spread_pct = (ask - bid) / premium
+        if spread_pct > 0.30:
+            logger.warning(f"[{signal.ticker}] Wide spread ({spread_pct*100:.1f}%), trying +1 OTM")
+            atm_data = get_atm_options(
+                ticker=signal.ticker,
+                option_type=signal.direction,
+                offset=offset_strikes + 1
+            )
+            if not atm_data:
+                return signal
+            premium = atm_data.get('premium', 0)
+    
+    # Calculate Greeks
+    strike = atm_data.get('strike', 0)
+    expiry = atm_data.get('expiry', '')
+    
     T = _time_to_expiry_years()
     r = 0.05
     S = signal.spot_price
     K = strike
-
+    
+    # Use a default IV if not available
+    iv_raw = 0.30
+    
+    side = "call" if signal.direction == "CALL" else "put"
     delta = bs_delta(S, K, T, r, iv_raw, side)
     theta = bs_theta(S, K, T, r, iv_raw, side)
-    vega  = bs_vega(S, K, T, r, iv_raw)
-
+    vega = bs_vega(S, K, T, r, iv_raw)
+    
+    # Build contract symbol
     expiry_short = datetime.now(ET).strftime("%y%m%d")
-    flag         = "C" if signal.direction == "CALL" else "P"
+    flag = "C" if signal.direction == "CALL" else "P"
     contract_sym = f"{signal.ticker}_{expiry_short}{flag}{int(strike)}"
-
-    signal.strike   = strike
-    signal.premium  = premium
-    signal.iv       = iv_raw
+    
+    # Enrich signal
+    signal.strike = strike
+    signal.premium = premium
+    signal.iv = iv_raw
     signal.contract = contract_sym
-
     signal.reasons.append(
         f"Delta={delta:.2f} Theta={theta:.3f} Vega={vega:.3f} IV={iv_raw*100:.0f}%"
     )
-
+    
     logger.info(
         f"[{signal.ticker}] Contract: {contract_sym} | "
         f"Premium: ${premium:.2f} | Strike: ${strike} | IV: {iv_raw*100:.0f}%"
     )
+    
     return signal
