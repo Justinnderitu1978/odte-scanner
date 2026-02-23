@@ -198,9 +198,13 @@ class SignalEngine:
             score     = bear_score
             reasons   = bear_reasons
 
-       if not direction:
-    # Pre-signal alerts disabled - only alert on full 4/5 signals
-    return None
+# ... some code above ...
+    
+    if not direction:
+        # Pre-signal alerts disabled - only alert on full 4/5 signals
+        return None
+    
+    # ... rest of code below ...
         self._last_signal[ticker] = now
 
         return Signal(
