@@ -46,7 +46,7 @@ class Trade:
     entry_spot:  float
     entry_time:  str
     target_pct:  float = 0.80
-    stop_pct:    float = 0.20  # Changed from 0.50 to 0.20
+    stop_pct:    float = 0.20
     status:      str   = "OPEN"
     exit_price:  Optional[float] = None
     exit_time:   Optional[str]   = None
@@ -181,8 +181,13 @@ def _get_current_premium(trade: Trade) -> Optional[float]:
         logger.error(f"Error fetching premium for {trade.trade_id}: {e}")
         return None
 
+
 def _send_exit_email(subject: str, body: str):
     """Send exit or milestone alert email"""
+    
+    # EXIT EMAILS DISABLED - only send entry signal alerts
+    return
+    
     sender    = os.environ.get("EMAIL_ADDRESS", "")
     password  = os.environ.get("EMAIL_APP_PASSWORD", "")
     recipient = os.environ.get("RECIPIENT_EMAIL") or sender
@@ -207,6 +212,10 @@ def _send_exit_email(subject: str, body: str):
 
 def _send_milestone_alert(trade, current_price, pnl_pct, level, emoji, title, message, color):
     """Send milestone alert via email and SMS"""
+    
+    # MILESTONE ALERTS DISABLED
+    return
+    
     pnl_dollars = (current_price - trade.entry_price) * 100
     
     subject = (
@@ -224,195 +233,4 @@ def _send_milestone_alert(trade, current_price, pnl_pct, level, emoji, title, me
     <div style="border:1px solid #e5e7eb;padding:16px;border-radius:0 0 8px 8px">
       <table>
         <tr><td><b>Contract</b></td><td>{trade.contract}</td></tr>
-        <tr><td><b>Entry</b></td><td>${trade.entry_price:.2f}</td></tr>
-        <tr><td><b>Current</b></td><td>${current_price:.2f}</td></tr>
-        <tr><td><b>P&L %</b></td>
-            <td style="color:{color}"><b>{pnl_pct*100:+.1f}%</b></td></tr>
-        <tr><td><b>P&L $</b></td>
-            <td style="color:{color}"><b>${pnl_dollars:+.2f}/contract</b></td></tr>
-      </table>
-      <p style="background:#f9fafb;padding:12px;border-radius:6px;margin-top:16px">
-        <b>{message}</b>
-      </p>
-    </div>
-    </body></html>
-    """
-    
-    _send_exit_email(subject, html)
-    
-    # SMS
-    phone   = os.environ.get("RECIPIENT_PHONE", "")
-    carrier = os.environ.get("CARRIER", "").lower()
-    
-    if phone and carrier:
-        try:
-            from src.alert_system import CARRIER_GATEWAYS
-            domain = CARRIER_GATEWAYS.get(carrier)
-            if domain:
-                sender   = os.environ.get("EMAIL_ADDRESS", "")
-                password = os.environ.get("EMAIL_APP_PASSWORD", "")
-                digits   = "".join(filter(str.isdigit, phone))[-10:]
-                gateway  = f"{digits}@{domain}"
-                
-                sms_body = (
-                    f"{emoji} {level} {trade.ticker} {trade.direction} "
-                    f"${trade.entry_price:.2f}→${current_price:.2f} "
-                    f"{pnl_pct*100:+.0f}% ${pnl_dollars:+.0f} "
-                    f"{message}"
-                )[:320]
-                
-                sms_msg = MIMEText(sms_body)
-                sms_msg["From"] = sender
-                sms_msg["To"]   = gateway
-                
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-                    s.login(sender, password)
-                    s.sendmail(sender, gateway, sms_msg.as_string())
-                logger.info(f"Milestone alert SMS sent: {level}")
-        except Exception as e:
-            logger.error(f"Milestone SMS failed: {e}")
-
-
-def check_exits():
-    """
-    Check all open positions for exit conditions and milestone alerts.
-    
-    Sends alerts at:
-    - +15% profit
-    - +20% peak
-    - -10% warning
-    - -20% stop
-    
-    Auto-closes only at:
-    - +80% full target
-    - -50% catastrophic stop
-    - 3:30 PM / 3:45 PM time stops
-    """
-    trades  = _load_trades()
-    now     = datetime.now(ET)
-    changed = False
-
-    open_trades = [t for t in trades if t.status == "OPEN"]
-    if not open_trades:
-        logger.debug("No open trades to monitor")
-        return
-
-    for trade in open_trades:
-        current = _get_current_premium(trade)
-        
-        if current is None:
-            logger.warning(f"[{trade.trade_id}] Could not fetch current premium")
-            continue
-        
-        pnl_pct = (current - trade.entry_price) / trade.entry_price
-        
-        # ── Check milestone alerts (send but don't close position) ────────
-        # +15% Profit Alert
-        if False and pnl_pct >= 0.15 and not trade.alert_profit15_sent:
-            ...
-        
-        # +20% Peak Alert
-        if False and pnl_pct >= 0.20 and not trade.alert_profit20_sent:
-            ...
-        
-        # -10% Warning Alert
-        if False and pnl_pct <= -0.10 and not trade.alert_warning_sent:
-            ...
-        
-        # -20% Stop Alert
-        if False and pnl_pct <= -0.20 and not trade.alert_stop_sent:
-            ...
-        
-        # ── Check actual exit conditions (close position) ─────────────────
-        
-        reason     = None
-        exit_price = current
-        
-        # Full target hit
-        if current >= trade.target_price:
-            reason = f"Profit target hit (+{trade.target_pct*100:.0f}%)"
-        
-        # Catastrophic stop (safety net beyond -20% alert)
-        elif pnl_pct <= -0.50:
-            reason = f"Catastrophic stop hit (-50%)"
-        
-        # Time-based exits
-        elif now.time() >= HARD_EXIT:
-            reason = "Hard close 3:45 PM ET"
-        elif now.time() >= EARLY_EXIT:
-            reason = "Time stop 3:30 PM ET"
-        
-        if reason:
-            trade.exit_price = exit_price
-            trade.exit_time  = now.isoformat()
-            trade.pnl_pct    = pnl_pct
-            trade.status     = (
-                "CLOSED_TARGET" if "target" in reason else
-                "CLOSED_STOP"   if "Stop"   in reason or "stop" in reason else
-                "CLOSED_TIME"
-            )
-            changed = True
-            
-            # Send final exit email
-            pnl_dollars = (exit_price - trade.entry_price) * 100
-            emoji       = "✅" if pnl_pct > 0 else "🛑"
-            color       = "#16a34a" if pnl_pct > 0 else "#dc2626"
-            subject     = (
-                f"{emoji} EXIT {trade.direction} {trade.ticker} "
-                f"| {reason} | P&L: {pnl_pct*100:.1f}%"
-            )
-            body = f"""
-            <html><body style="font-family:Arial,sans-serif">
-            <div style="background:{color};color:white;padding:16px;
-                        border-radius:8px 8px 0 0">
-              <h2 style="margin:0">{emoji} Trade Exit - {trade.ticker} {trade.direction}</h2>
-              <p style="margin:4px 0">{now.strftime('%H:%M:%S ET')}</p>
-            </div>
-            <div style="border:1px solid #e5e7eb;padding:16px;
-                        border-radius:0 0 8px 8px">
-              <table>
-                <tr><td><b>Trade ID</b></td><td>{trade.trade_id}</td></tr>
-                <tr><td><b>Contract</b></td><td>{trade.contract}</td></tr>
-                <tr><td><b>Reason</b></td><td>{reason}</td></tr>
-                <tr><td><b>Entry</b></td><td>${trade.entry_price:.2f}</td></tr>
-                <tr><td><b>Exit</b></td><td>${exit_price:.2f}</td></tr>
-                <tr><td><b>P&L %</b></td>
-                    <td style="color:{color}"><b>{pnl_pct*100:+.1f}%</b></td></tr>
-                <tr><td><b>P&L $</b></td>
-                    <td style="color:{color}"><b>${pnl_dollars:+.2f}/contract</b></td></tr>
-              </table>
-            </div>
-            </body></html>
-            """
-            _send_exit_email(subject, body)
-            logger.info(
-                f"Trade closed: {trade.trade_id} | "
-                f"{reason} | P&L: {pnl_pct:.2%}"
-            )
-
-    if changed:
-        _save_trades(trades)
-
-
-def print_trade_summary():
-    """Print summary of all trades"""
-    trades   = _load_trades()
-    open_t   = [t for t in trades if t.status == "OPEN"]
-    closed_t = [t for t in trades if t.status != "OPEN"]
-
-    print(f"\n{'='*55}")
-    print(f"  TRADE SUMMARY - {datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}")
-    print(f"{'='*55}")
-    print(f"  Open trades   : {len(open_t)}")
-    print(f"  Closed trades : {len(closed_t)}")
-
-    if closed_t:
-        pnls = [t.pnl_pct for t in closed_t if t.pnl_pct is not None]
-        if pnls:
-            wins = sum(1 for p in pnls if p > 0)
-            print(f"  Win rate      : {wins}/{len(pnls)} ({wins/len(pnls)*100:.0f}%)")
-            print(f"  Avg P&L       : {sum(pnls)/len(pnls)*100:+.1f}%")
-
-    for t in open_t:
-        print(f"  OPEN | {t.trade_id} | {t.direction} | Entry ${t.entry_price:.2f}")
-    print(f"{'='*55}\n")
+        <tr><td><b>Entry</b></td><td>${trade.entry_price
