@@ -307,58 +307,21 @@ def check_exits():
         pnl_pct = (current - trade.entry_price) / trade.entry_price
         
         # ── Check milestone alerts (send but don't close position) ────────
-        
         # +15% Profit Alert
-        if pnl_pct >= 0.15 and not trade.alert_profit15_sent:
-            _send_milestone_alert(
-                trade, current, pnl_pct,
-                level="+15%",
-                emoji="📊",
-                title="PROFIT MILESTONE",
-                message="Consider taking profit",
-                color="#10b981"
-            )
-            trade.alert_profit15_sent = True
-            changed = True
+        if False and pnl_pct >= 0.15 and not trade.alert_profit15_sent:
+            ...
         
         # +20% Peak Alert
-        if pnl_pct >= 0.20 and not trade.alert_profit20_sent:
-            _send_milestone_alert(
-                trade, current, pnl_pct,
-                level="+20%",
-                emoji="🎯",
-                title="PEAK REACHED",
-                message="Position peaked — watch for reversal",
-                color="#059669"
-            )
-            trade.alert_profit20_sent = True
-            changed = True
+        if False and pnl_pct >= 0.20 and not trade.alert_profit20_sent:
+            ...
         
         # -10% Warning Alert
-        if pnl_pct <= -0.10 and not trade.alert_warning_sent:
-            _send_milestone_alert(
-                trade, current, pnl_pct,
-                level="-10%",
-                emoji="⚠️",
-                title="WARNING",
-                message="Position going negative",
-                color="#f59e0b"
-            )
-            trade.alert_warning_sent = True
-            changed = True
+        if False and pnl_pct <= -0.10 and not trade.alert_warning_sent:
+            ...
         
         # -20% Stop Alert
-        if pnl_pct <= -0.20 and not trade.alert_stop_sent:
-            _send_milestone_alert(
-                trade, current, pnl_pct,
-                level="-20%",
-                emoji="🛑",
-                title="STOP LOSS HIT",
-                message="EXIT RECOMMENDED",
-                color="#dc2626"
-            )
-            trade.alert_stop_sent = True
-            changed = True
+        if False and pnl_pct <= -0.20 and not trade.alert_stop_sent:
+            ...
         
         # ── Check actual exit conditions (close position) ─────────────────
         
