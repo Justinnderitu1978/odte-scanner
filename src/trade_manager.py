@@ -131,7 +131,13 @@ def _get_current_premium(trade: Trade) -> Optional[float]:
     try:
         from src.market_data import get_options_chain
 
-        chain = get_options_chain(trade.ticker)
+         import yfinance as yf
+ticker_obj = yf.Ticker(ticker)
+expirations = ticker_obj.options
+if not expirations:
+    return None
+expiry = expirations[0]
+chain = get_options_chain(ticker, expiry)
         if not chain:
             return None
 
