@@ -129,33 +129,50 @@ def open_trade(signal) -> Optional[Trade]:
 def _get_current_premium(trade: Trade) -> Optional[float]:
     """Fetch current option premium for a trade"""
     try:
+        import yfinance as yf
         from src.market_data import get_options_chain
-
-         import yfinance as yf
-ticker_obj = yf.Ticker(ticker)
-expirations = ticker_obj.options
-if not expirations:
-    return None
-expiry = expirations[0]
-chain = get_options_chain(ticker, expiry)
+        
+        # Extract ticker from trade
+        ticker = trade.ticker
+        
+        # Get available expiration dates
+        ticker_obj = yf.Ticker(ticker)
+        expirations = ticker_obj.options
+        
+        if not expirations:
+            logger.warning(f"No expirations available for {ticker}")
+            return None
+        
+        # Use first available expiration (today for 0DTE)
+        expiry = expirations[0]
+        
+        # Get option chain
+        chain = get_options_chain(ticker, expiry)
         if not chain:
             return None
 
-        df = chain.get("calls") if trade.direction == "CALL" else chain.get("puts")
+        # Select calls or puts based on trade direction
+        df = chain.calls if trade.direction == "CALL" else chain.puts
         if df is None or df.empty:
             return None
 
+        # Find the row matching the trade's strike
         row = df[df["strike"] == trade.strike]
+        
+        # If exact strike not found, find closest
         if row.empty:
             df["dist"] = (df["strike"] - trade.strike).abs()
             row = df.nsmallest(1, "dist")
+        
         if row.empty:
             return None
 
-        bid  = float(row.iloc[0].get("bid",       0) or 0)
-        ask  = float(row.iloc[0].get("ask",       0) or 0)
+        # Extract pricing data
+        bid = float(row.iloc[0].get("bid", 0) or 0)
+        ask = float(row.iloc[0].get("ask", 0) or 0)
         last = float(row.iloc[0].get("lastPrice", 0) or 0)
 
+        # Return mid price or last
         if ask > 0:
             return (bid + ask) / 2
         return last if last > 0 else None
@@ -163,7 +180,6 @@ chain = get_options_chain(ticker, expiry)
     except Exception as e:
         logger.error(f"Error fetching premium for {trade.trade_id}: {e}")
         return None
-
 
 def _send_exit_email(subject: str, body: str):
     """Send exit or milestone alert email"""
