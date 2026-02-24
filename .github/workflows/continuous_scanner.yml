@@ -52,7 +52,7 @@ jobs:
           SCHWAB_REFRESH_TOKEN: ${{ secrets.SCHWAB_REFRESH_TOKEN }}
         run: |
           echo "Starting continuous scanner at $(date -u)"
-          SCAN_INTERVAL=30  # seconds between scans
+          SCAN_INTERVAL=360  # seconds between scans
           
           while true; do
             CURRENT_TIME=$(date -u +%H%M)
