@@ -9,6 +9,10 @@ import pytz
 from dataclasses import dataclass
 from typing import Optional
 
+# Track recent signals to prevent duplicates
+_recent_signals = {}
+SIGNAL_COOLDOWN_MINUTES = 10
+
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
 
@@ -173,6 +177,18 @@ def run_scanner(ticker: str, df: pd.DataFrame, vix: float) -> Optional[Signal]:
         if not direction:
             return None
         
+    # Check cooldown to prevent duplicate signals
+        signal_key = f"{ticker}_{direction}"
+        now = datetime.now(ET)
+        
+        if signal_key in _recent_signals:
+            last_signal_time = _recent_signals[signal_key]
+            minutes_since = (now - last_signal_time).total_seconds() / 60
+            
+            if minutes_since < SIGNAL_COOLDOWN_MINUTES:
+                logger.info(f"[{ticker}] {direction} signal on cooldown ({minutes_since:.1f}m ago)")
+                return None
+        
         # Create signal
         signal = Signal(
             ticker=ticker,
@@ -187,6 +203,9 @@ def run_scanner(ticker: str, df: pd.DataFrame, vix: float) -> Optional[Signal]:
             or_low=or_low,
             reasons=reasons
         )
+        
+        # Record this signal
+        _recent_signals[signal_key] = now
         
         return signal
         
