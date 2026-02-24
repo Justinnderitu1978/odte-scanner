@@ -115,10 +115,13 @@ def run_scanner(ticker: str, df: pd.DataFrame, vix: float) -> Optional[Signal]:
         bull_score = 0
         bull_reasons = []
         
+        # Check ORB breakout with 0.5% minimum movement
         if spot > or_high:
+            breakout_pct = (spot - or_high) / or_high
+            
+        if breakout_pct >= 0.005:  # 0.5% minimum
             bull_score += 1
-            bull_reasons.append(f"ORB up ${spot:.2f}>${or_high:.2f}")
-        
+            bull_reasons.append(f"ORB up ${spot:.2f}>${or_high:.2f} (+{breakout_pct*100:.1f}%)")        
         if spot > vwap:
             bull_score += 1
             bull_reasons.append(f"VWAP up ${spot:.2f}>${vwap:.2f}")
@@ -135,9 +138,12 @@ def run_scanner(ticker: str, df: pd.DataFrame, vix: float) -> Optional[Signal]:
         bear_score = 0
         bear_reasons = []
         
+       # Check ORB breakout with 0.5% minimum movement
         if spot < or_low:
+            breakout_pct = (or_low - spot) / or_low
+        if breakout_pct >= 0.005:  # 0.5% minimum
             bear_score += 1
-            bear_reasons.append(f"ORB down ${spot:.2f}<${or_low:.2f}")
+        bear_reasons.append(f"ORB down ${spot:.2f}<${or_low:.2f} (-{breakout_pct*100:.1f}%)")
         
         if spot < vwap:
             bear_score += 1
